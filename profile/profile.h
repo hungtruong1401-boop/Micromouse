@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+
+
 typedef enum {
     IDLE = 0,
     ACCEL,
@@ -24,9 +26,11 @@ typedef struct
 		volatile float position; // vi tri hien tai
 	  float one_per_acc;
 } Profile;
-
+extern Profile forward;
+extern Profile rotation;
 // Cac ham chinh
-void ProReset(Profile *p);
+void Reset_Forward(Profile *p, float speed);
+void Reset_Rotation(Profile *p, float speed);
 void Start(Profile *p,
            float m_distance,
            float m_top_speed,

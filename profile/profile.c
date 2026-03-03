@@ -3,16 +3,28 @@
 #include <stdbool.h>
 #include <math.h>
 
-void Reset(Profile *p)
+Profile forward;
+Profile rotation;
+
+void Reset_Rotation(Profile *p, float speed)
 {
 		__disable_irq();
     p->position = 0;
-    p->speed = 0;
+    p->speed = speed;
     p->target_speed = 0;
     p->state = IDLE;
     __enable_irq();
 }
 
+void Reset_Forward(Profile *p, float speed)
+{
+		__disable_irq();
+    p->position = 0;
+    p->speed = speed;
+    p->target_speed = 0;
+    p->state = IDLE;
+    __enable_irq();
+}
 void Start(Profile *p, float distance, float top_speed, float final_speed, float acceleration)
 {
 	p->sign =(distance < 0) ? -1 : 1;

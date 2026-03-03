@@ -21,7 +21,14 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "profile.h"
+#include "encoder.h"
+#include "gyro_6500.h"
+#include "sensor.h"
+#include "timer_interupt.h"
+#include "stdint.h"
+#include "motor.h"
+#include "motion.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,16 +43,6 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define PWM_MAX     1799
-#define PWM_MIN     200
-#define SLOW_ZONE   300
-#define STOP_EPS    20
-#define Kp          26.7
-#define Ki          0.25
-#define Kd         0.000015
-#define ONE_CELL    1450
-#define CLAMP(x,min,max) ((x)<(min)?(min):((x)>(max)?(max):(x)))
-
 
 
 /* USER CODE END PM */
@@ -65,14 +62,11 @@ UART_HandleTypeDef huart3;
 /* USER CODE BEGIN PV */
 
 
+int16_t left = 0;
+int16_t right = 0;
 
-
-
-volatile int16_t pwm_left = 0;
-volatile int16_t pwm_right = 0;
-volatile int16_t pwm_base = 1500;
-volatile int32_t diff;
-
+extern Profile forward;
+extern Profile rotation;
 
 /* USER CODE END PV */
 
@@ -94,143 +88,27 @@ static void MX_USART3_UART_Init(void);
 /* USER CODE BEGIN 0 */
   
 //PWM BEGIN
-void Motor_Init()
-{
-    HAL_TIM_PWM_Start(&htim3,TIM_CHANNEL_1);
-    HAL_TIM_PWM_Start(&htim3,TIM_CHANNEL_2);
-    HAL_TIM_PWM_Start(&htim3,TIM_CHANNEL_3);
-    HAL_TIM_PWM_Start(&htim3,TIM_CHANNEL_4);
-}
 
-void Motor_Left(int16_t ccrL)
-{
-	  
-    if(ccrL>0)
-    {
-        htim3.Instance->CCR1 = 0;
-        htim3.Instance->CCR2 = ccrL;
-    }
-    else if(ccrL<0)
-    {
-        htim3.Instance->CCR1 = -ccrL;
-        htim3.Instance->CCR2 = 0;
-    }
-    else
-    {
-        htim3.Instance->CCR1 = 1;
-        htim3.Instance->CCR2 = 1;
-    }
-}
 
-void Motor_Right(int16_t ccrR)
+
+void HAL_SYSTICK_Callback(void)
 {
 		
-    if(ccrR>0)
-    {
-        htim3.Instance->CCR3 = 0;
-        htim3.Instance->CCR4 = ccrR;
-    }
-    else if(ccrR<0)
-    {
-        htim3.Instance->CCR3 = -ccrR;
-        htim3.Instance->CCR4 = 0;
-    }
-    else
-    {
-        htim3.Instance->CCR3 = 1;
-        htim3.Instance->CCR4 = 1;
-    }
+    MPU_Update();
+    Encoder_Update();
+    Get_Sensor_Value();
+    update_wall_sensor();                  // G?i 1 l?n d? c?p nh?t tr?ng thái tu?ng
+
+    Update(&forward);
+    Update(&rotation);
+
+    uint8_t wall_state = update_wall_sensor(); 
+    update_motor_controllers(0);       
+
 }
-//PWM END
-
-
-
-
-// MPU 9250 BEGIN
-
-
-
-//TIMER INTERUPT PID + MPU
-	void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-    if(htim->Instance == TIM1)
-    {
-        MPU_Update();
-			  Update_Encoder();
-    }
-}
-//MOVE
-/*void Move_One_Cell(int32_t target_ticks, int16_t initial_pwm) 
-{
-    int16_t pwm_base = CLAMP(initial_pwm, PWM_MIN, PWM_MAX);
-    // Reset encoder
-    __HAL_TIM_SET_COUNTER(&htim2, 0);
-    __HAL_TIM_SET_COUNTER(&htim4, 0);
-    int32_t encoder_left_last= 0;
-		int32_t encoder_right_last= 0;
-	 
-    while (1)
-    {
-        // ===== ï¿½?C ENCODER =====
-			  int32_t encoder_left= Get_Encoder_Left();
-				int32_t encoder_right= Get_Encoder_Right();
-        total_encoder_left  += encoder_left - encoder_left_last;
-        total_encoder_right += encoder_right - encoder_right_last;
-	      encoder_left_last = encoder_left;
-				encoder_right_last = encoder_right;
-
-        int32_t delta_left  = target_ticks - total_encoder_left;   // ? int32_t
-        int32_t delta_right = target_ticks - total_encoder_right;  // ? int32_t
-
-        // ===== KI?M TRA ï¿½I?U KI?N D?NG =====
-        if ((delta_left) <= STOP_EPS && delta_right <= (STOP_EPS))
-        {
-            Motor_Left(0);
-            Motor_Right(0);
-            break;
-        }
-
-        // ===== Tï¿½NH PWM CO B?N (GI?M T?C KHI G?N ï¿½ï¿½CH) =====
-        int32_t min_delta = (delta_left < delta_right) ? delta_left : delta_right;
-
-        if (min_delta < SLOW_ZONE)
-        {
-            pwm_base = PWM_MIN + ((initial_pwm - PWM_MIN) * min_delta) / SLOW_ZONE;
-        }
-        else
-        {
-            pwm_base = initial_pwm;
-        }
-
-        pwm_base = CLAMP(pwm_base, PWM_MIN, PWM_MAX);
-
-        // ===== CH?NH TH?NG (ENCODER BALANCE) =====
-				float error = 0.0f - angle_x;
-				float last_error = 0;
-				float integral = 0;
-			  float derivative = 0;
-				integral	+= error * 0.001f;
-				derivative = (error - last_error) / 0.001f;
-
-				float correction = Kp*error + Ki*integral + Kd*derivative;
-
-				last_error = error;			
-			  pwm_left = pwm_base - correction;
-			  pwm_right = pwm_base + correction;
-				
-				pwm_left = CLAMP(pwm_left, PWM_MIN, PWM_MAX);
-				pwm_right = CLAMP(pwm_right, PWM_MIN, PWM_MAX);
-        // ===== XU?T RA ï¿½?NG CO =====
-        Motor_Left(pwm_left);
-        Motor_Right(pwm_right);
-
-        HAL_Delay(5);
-    }
-
-    // Reset encoder sau khi ch?y xong
-    __HAL_TIM_SET_COUNTER(&htim2, 0);
-    __HAL_TIM_SET_COUNTER(&htim4, 0);
-}*/
+volatile float poss= 0;
+volatile float rott= 0;
+volatile float dist = 0;
 
 /* USER CODE END 0 */
 
@@ -277,19 +155,38 @@ int main(void)
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, 1);
 	MPU_Calibrate();
 	HAL_TIM_Base_Start_IT(&htim1);
+	
+	
+	
+	
+	
+
+//Start(&forward, 180, 700,0,800);		 
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+	
   while (1)
   {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
+    /* USER CODE END WHILE		*/
+    move_forward(180, 700,0);
+		turn_L_smooth();
+		move_forward(180, 700,0);
+		turn_L_smooth();
+		move_forward(180, 700,0);
+		turn_L_smooth();
+		move_forward(180, 700,0);
+		turn_L_smooth();
+		
+		break;
+	}
+   /*     USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
-}
 
+ 
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -348,6 +245,7 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 0 */
 
+  ADC_InjectionConfTypeDef sConfigInjected = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
   /* USER CODE BEGIN ADC1_Init 1 */
@@ -362,8 +260,50 @@ static void MX_ADC1_Init(void)
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 5;
+  hadc1.Init.NbrOfConversion = 1;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Injected Channel
+  */
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_2;
+  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_1;
+  sConfigInjected.InjectedNbrOfConversion = 4;
+  sConfigInjected.InjectedSamplingTime = ADC_SAMPLETIME_55CYCLES_5;
+  sConfigInjected.ExternalTrigInjecConv = ADC_INJECTED_SOFTWARE_START;
+  sConfigInjected.AutoInjectedConv = DISABLE;
+  sConfigInjected.InjectedDiscontinuousConvMode = DISABLE;
+  sConfigInjected.InjectedOffset = 0;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Injected Channel
+  */
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_3;
+  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_2;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Injected Channel
+  */
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_4;
+  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_3;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Injected Channel
+  */
+  sConfigInjected.InjectedChannel = ADC_CHANNEL_5;
+  sConfigInjected.InjectedRank = ADC_INJECTED_RANK_4;
+  if (HAL_ADCEx_InjectedConfigChannel(&hadc1, &sConfigInjected) != HAL_OK)
   {
     Error_Handler();
   }
@@ -373,43 +313,6 @@ static void MX_ADC1_Init(void)
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_2;
-  sConfig.Rank = ADC_REGULAR_RANK_2;
-  sConfig.SamplingTime = ADC_SAMPLETIME_71CYCLES_5;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_3;
-  sConfig.Rank = ADC_REGULAR_RANK_3;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_4;
-  sConfig.Rank = ADC_REGULAR_RANK_4;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Regular Channel
-  */
-  sConfig.Channel = ADC_CHANNEL_0;
-  sConfig.Rank = ADC_REGULAR_RANK_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -477,9 +380,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 71;
+  htim1.Init.Prescaler = 49;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 999;
+  htim1.Init.Period = 89;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -724,20 +627,20 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_12|GPIO_PIN_8|GPIO_PIN_9, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PB12 */
-  GPIO_InitStruct.Pin = GPIO_PIN_12;
+  /*Configure GPIO pins : PB12 PB8 PB9 */
+  GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_8|GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_10;
+  /*Configure GPIO pins : PA8 PA9 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

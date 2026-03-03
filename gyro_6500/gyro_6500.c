@@ -8,6 +8,7 @@ volatile float angle_x, angle_y, angle_z;
 float Gx,Gy,Gz;
 float offset_x, offset_y, offset_z;
 float gx,gy,gz;
+volatile uint16_t cnt;
 
 
 static void MPU_Write(uint8_t reg, uint8_t data)
@@ -50,8 +51,8 @@ void MPU_Init(void)
     // DLPF config (optional)
     MPU_Write(CONFIG, 0x03);
 
-    // Gyro ±1000 dps (FS_SEL = 2)
-    MPU_Write(GYRO_CONFIG, 0x10);
+    // Gyro ±250 dps (FS_SEL = 0)
+    MPU_Write(GYRO_CONFIG, 0x00);
 		}
     
 

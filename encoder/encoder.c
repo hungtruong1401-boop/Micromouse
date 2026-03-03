@@ -5,8 +5,8 @@
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim4;
 
-static volatile float real_position = 0;
-static volatile float real_pos_increment = 0;
+volatile float real_position = 0;
+volatile float real_pos_increment = 0;
 
 void Encoder_Init()
 {
@@ -14,12 +14,21 @@ void Encoder_Init()
     HAL_TIM_Encoder_Start(&htim4, TIM_CHANNEL_ALL);
 }
 
-void Reset_Encoder()
+void Encoder_Reset()
 {
     __HAL_TIM_SET_COUNTER(&htim2, 0);
     __HAL_TIM_SET_COUNTER(&htim4, 0);
 }
 
+int16_t Get_Encoder_Left(void)
+{
+	return __HAL_TIM_GetCounter(&htim2);
+}
+
+int16_t Get_Encoder_Right(void)
+{
+	return __HAL_TIM_GetCounter(&htim4);
+}
 static int16_t Get_Delta_Encoder_Left(void)
 {
     static uint16_t encoder_left_last = 0;
@@ -38,7 +47,7 @@ static int16_t Get_Delta_Encoder_Right(void)
     return delta;
 }
 
-void Update_Encoder()
+void Encoder_Update()
 {
     // Cap nhat pos_increment
     real_pos_increment = (Get_Delta_Encoder_Left() + Get_Delta_Encoder_Right()) * MM_PER_CNT_ENCODER * 0.5f;
